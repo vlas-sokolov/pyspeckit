@@ -302,38 +302,42 @@ def _ammonia_spectrum(xarr, tex, tau_dict, width, xoff_v, fortho, line_names,
         voff_lines = np.array(voff_lines_dict[linename])
         tau_wts = np.array(tau_wts_dict[linename])
 
-        lines = (1-voff_lines/ckms)*freq_dict[linename]/1e9
+        lines = (1 - voff_lines / ckms) * freq_dict[linename] / 1e9
         tau_wts = tau_wts / (tau_wts).sum()
-        nuwidth = np.abs(width/ckms*lines)
-        nuoff = xoff_v/ckms*lines
+        nuwidth = np.abs(width / ckms * lines)
+        nuoff = xoff_v / ckms * lines
 
-        # tau array
-        tauprof = np.zeros(len(xarr))
-        for kk,nuo in enumerate(nuoff):
-            tauprof += (tau_dict[linename] * tau_wts[kk] *
-                        np.exp(-(xarr.value+nuo-lines[kk])**2 /
-                               (2.0*nuwidth[kk]**2)))
-            components.append(tauprof)
-
-        T0 = (h*xarr.value*1e9/kb) # "temperature" of wavelength
-
-        if isinstance(tex, dict):
-            runspec = ((T0/(np.exp(T0/tex[linename])-1) -
-                        T0/(np.exp(T0/background_tb)-1)) *
-                       (1-np.exp(-tauprof)) * fillingfraction + runspec)
+        if return_components:
+            # revert to an older way of calculating individual components
+            tauprof = np.zeros(len(xarr))
+            for kk, nuo in enumerate(nuoff):
+                tauprof += (tau_dict[linename] * tau_wts[kk] *
+                            np.exp(-(xarr.value + nuo - lines[kk])
+                                   **2 / (2.0 * nuwidth[kk]**2)))
+                components.append(tauprof)
         else:
-            runspec = ((T0/(np.exp(T0/tex)-1) -
-                        T0/(np.exp(T0/background_tb)-1)) *
-                       (1-np.exp(-tauprof)) * fillingfraction + runspec)
+            tauprof = np.einsum('ij->i', (
+                tau_dict[linename] * tau_wts[None, :] *
+                np.exp(-0.5 * np.square(
+                    np.einsum('i,j -> ij', xarr.value, 1 / nuwidth) +
+                    ((nuoff - lines) / nuwidth)[None, :])) * fillingfraction))
 
+        T0 = (h * xarr.value * 1e9 / kb)  # "temperature" of wavelength
+
+        t_ex = tex[linename] if isinstance(tex, dict) else tex
+        runspec = ((T0 / (np.exp(T0 / t_ex) - 1) - T0 /
+                    (np.exp(T0 / background_tb) - 1)) *
+                   (1 - np.exp(-tauprof)) + runspec)
 
     if return_components:
         if isinstance(tex, dict):
-            term1 = [(T0/(np.exp(T0/tex[linename])-1)-T0/(np.exp(T0/background_tb)-1))
+            term1 = [(T0 / (np.exp(T0 / tex[linename]) - 1) - T0 /
+                      (np.exp(T0 / background_tb) - 1))
                      for linename in line_names]
         else:
-            term1 = (T0/(np.exp(T0/tex)-1)-T0/(np.exp(T0/background_tb)-1))
-        return term1*(1-np.exp(-1*np.array(components)))
+            term1 = (T0 / (np.exp(T0 / tex) - 1) - T0 /
+                     (np.exp(T0 / background_tb) - 1))
+        return term1 * (1 - np.exp(-1 * np.array(components)))
     else:
         return runspec
 
